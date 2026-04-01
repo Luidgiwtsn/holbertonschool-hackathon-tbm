@@ -29,6 +29,12 @@ Chaque école est située sur une carte et associée à un indicateur visuel (ba
 
 Cette visualisation permet de repérer immédiatement les zones à risque et d’orienter les actions prioritaires, notamment en matière de végétalisation et d’aménagement urbain.
 
+La cartographie a été réalisée à l’aide de l’outil Felt (https://felt.com), permettant de visualiser et superposer différentes couches de données géographiques.
+
+Felt a permis de croiser différentes couches de données (îlots de chaleur, établissements scolaires) afin de produire une visualisation claire et interactive.
+
+Lien du site de la carte: https://felt.com/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.902,-0.6695,11.06z
+
 ![Carte des risques](images/Carte.JPG)
 
 ## Données utilisées:
