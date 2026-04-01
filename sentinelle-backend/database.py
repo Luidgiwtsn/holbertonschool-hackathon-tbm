@@ -1,14 +1,35 @@
-# database.py
 import geopandas as gpd
+import os
 
 def charger_donnees():
-    """
-    Charge les données des écoles et des zones LCZ
-    """
-    ecoles = gpd.read_file("data/ecoles_bordeaux.geojson")
-    zones = gpd.read_file("data/lcz_data.geojson")
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_path, "data")
 
-    # Assurer la même projection
-    ecoles = ecoles.to_crs(zones.crs)
+    file_ecoles = os.path.join(data_dir, "export.geojson")
+    file_zones = os.path.join(data_dir, "lcz_bordeaux.geojson")
 
-    return ecoles, zones
+    print(f"📂 écoles : {file_ecoles}")
+    print(f"📂 zones : {file_zones}")
+
+    if not os.path.exists(file_ecoles):
+        print("❌ export.geojson introuvable")
+        return None, None
+
+    if not os.path.exists(file_zones):
+        print("❌ lcz_bordeaux.geojson introuvable")
+        return None, None
+
+    try:
+        ecoles = gpd.read_file(file_ecoles)
+        zones = gpd.read_file(file_zones)
+
+        ecoles = ecoles.to_crs(epsg=4326)
+        zones = zones.to_crs(epsg=4326)
+
+        print("✅ données chargées")
+
+        return ecoles, zones
+
+    except Exception as e:
+        print(f"❌ erreur lecture : {e}")
+        return None, None
