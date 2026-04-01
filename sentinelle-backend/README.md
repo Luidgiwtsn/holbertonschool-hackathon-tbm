@@ -35,7 +35,18 @@ Felt a permis de croiser différentes couches de données (îlots de chaleur, é
 
 Lien du site de la carte: https://felt.com/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.902,-0.6695,11.06z
 
-![Carte des risques](images/Carte.JPG)
+### Superposition de toutes les données:
+
+![Carte des risques](images/Sentinelle.JPG)
+### Données des écoles de la métropole de Boredaux:
+
+![Carte des risques](images/Sentinelle_ecole.JPG)
+### Données des îlos de chaleur et de fraicheur de la métropole de Boredaux:
+
+![Carte des risques](images/Sentinelle_chaleur_fraicheur.JPG)
+### Données de la zone argileuse de la métropole de Boredaux:
+
+![Carte des risques](images/Sentinelle_argile.JPG)
 
 ## Données utilisées:
 
