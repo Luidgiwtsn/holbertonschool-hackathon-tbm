@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Sentinelle</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- 🗺️ CARTE -->
+  <div class="map">
+    <iframe id="mapFrame"
+      src="https://felt.com/embed/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.902,-0.6695,11.06z&legend=1">
+    </iframe>
+  </div>
+
+  <!-- 📋 PANEL -->
+  <div class="panel">
+
+    <h2>Sentinelle</h2>
+
+    <input type="text" id="search" placeholder="Nom de l'école...">
+    <button onclick="searchSchool()">Rechercher</button>
+
+    <h3>Résultat</h3>
+    <div id="result"></div>
+
+    <h3>Liste des écoles</h3>
+    <ul id="listeEcoles"></ul>
+
+  </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
