@@ -30,7 +30,7 @@ L’application fournit ainsi des informations adaptées à chaque type d’util
 ## Perspectives:
 - Intégration d’autres risques (inondations, incendies)
 - Ajout de données en temps réel (température, alertes météo)
-- Développement d’une application mobile (en attendant que le site sois terminé)
+- Développement d’une application mobile (en attendant que le site soit terminé)
 
 
 ## Cartographie:
@@ -53,13 +53,13 @@ Felt a permis de croiser différentes couches de données (îlots de chaleur, é
 Lien du site de la carte: https://felt.com/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.902,-0.6695,11.06z
 
 
-### Données des écoles de la métropole de Boredaux:
+### Données des écoles de la métropole de Bordeaux:
 
 ![Carte des risques](images/Sentinelle_ecole.JPG)
-### Données des îlos de chaleur et de fraicheur de la métropole de Boredaux:
+### Données des îlos de chaleur et de fraicheur de la métropole de Bordeaux:
 
 ![Carte des risques](images/Sentinelle_chaleur_fraicheur.JPG)
-### Données de la zone argileuse de la métropole de Boredaux:
+### Données de la zone argileuse de la métropole de Bordeaux:
 
 ![Carte des risques](images/Sentinelle_argile.JPG)
 ### Superposition de toutes les données:
@@ -68,7 +68,7 @@ Lien du site de la carte: https://felt.com/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2
 
 ## Données utilisées:
 
-- Données d'îlot de chaleur ou de fraicheur urbain basé sur l'analyse des températures de surface de 2022 - source : Datahub Métropole de Bordeaux.
+- Données d'îlot de chaleur ou de fraicheur urbains basé sur l'analyse des températures de surface de 2022 - source : Datahub Métropole de Bordeaux.
 
 - Données sur les établissements scolaires - Overpass Turbo (OpenStreetMap).
 
@@ -83,7 +83,7 @@ Lien du site de la carte: https://felt.com/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2
 - Aide à la décision pour la végétalisation urbaine.
 
 ## Structure du projet
-### Structure back-end:
+### Structure du back-end :
 
 ```bash
 sentinelle-backend/
