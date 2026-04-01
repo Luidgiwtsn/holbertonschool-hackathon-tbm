@@ -6,3 +6,4 @@ class Diagnostic(BaseModel):
     score_alerte: float
     barometre: str
     recommandation: str
+    alea_argile: str = "Non répertorié" # Le champ qui manquait
