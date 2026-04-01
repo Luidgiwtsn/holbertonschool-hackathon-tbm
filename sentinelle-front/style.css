@@ -1,13 +1,17 @@
+/* 🔹 Reset */
 body {
   margin: 0;
   font-family: Arial, sans-serif;
+  background: #f0f2f5;
 }
 
+/* 🔹 Layout principal */
 .app {
   display: flex;
   height: 100vh;
 }
 
+/* 🗺️ Carte */
 .map {
   flex: 2;
 }
@@ -18,46 +22,110 @@ body {
   border: none;
 }
 
+/* 📋 Panel */
 .panel {
   flex: 1;
   padding: 20px;
-  background: #f5f5f5;
+  background: #ffffff;
   overflow-y: auto;
+  box-shadow: -3px 0 10px rgba(0,0,0,0.1);
 }
 
+/* 🔹 Titres */
+.panel h2 {
+  margin-top: 0;
+}
+
+.panel h3 {
+  margin-top: 20px;
+}
+
+/* 🔎 Input */
 input {
   width: 100%;
   padding: 10px;
   margin-bottom: 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
 }
 
+/* 🔘 Bouton */
 button {
   width: 100%;
   padding: 10px;
   background: #007BFF;
   color: white;
   border: none;
+  border-radius: 8px;
   cursor: pointer;
+  transition: 0.2s;
 }
 
 button:hover {
   background: #0056b3;
 }
 
+/* 📋 Liste écoles */
 #listeEcoles {
-  max-height: 300px;
+  max-height: 250px;
   overflow-y: scroll;
+  padding: 0;
+  list-style: none;
 }
 
 #listeEcoles li {
-  padding: 5px;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
   cursor: pointer;
+  transition: 0.2s;
 }
 
 #listeEcoles li:hover {
-  background: #ddd;
+  background: #f0f0f0;
 }
 
+/* 📊 Résultat */
 #result {
   margin-top: 15px;
+}
+
+/* 🔥 Bloc score */
+.score-box {
+  padding: 12px;
+  border-radius: 10px;
+  color: white;
+  margin-bottom: 10px;
+}
+
+/* 🟢 Couleurs */
+.vert {
+  background: #4caf50;
+}
+
+.orange {
+  background: #ffa500;
+}
+
+.rouge {
+  background: #ff4d4d;
+}
+
+/* 📄 Recommandations */
+.reco {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/* 🔥 Scroll stylé */
+#listeEcoles::-webkit-scrollbar {
+  width: 6px;
+}
+
+#listeEcoles::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 10px;
 }
