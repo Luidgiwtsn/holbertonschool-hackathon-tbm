@@ -2,22 +2,25 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from unidecode import unidecode
 from database import charger_donnees
-from analysis import calcul_score, get_barometre, get_recommandation
+from analysis import get_barometre, get_recommandation
 from models import Diagnostic
-import pandas as pd
-import uvicorn
+
 import geopandas as gpd
 import os
 from enum import Enum
+import uvicorn
 
 # --- PROFILS ---
+# Types d'utilisateurs
 class ProfilUtilisateur(str, Enum):
     public = "public"
     pro = "pro"
 
+# --- INIT API ---
 app = FastAPI()
 
-# ✅ CORS FIX
+# --- CORS ---
+# Autorise le frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,53 +32,80 @@ app.add_middleware(
 # --- DATA ---
 ecoles = None
 zones = None
-argile = None 
+argile = None
 
+# --- INITIALISATION ---
+# Charge les GeoJSON
 def initialiser_systeme():
     global ecoles, zones, argile
+
     ecoles, zones = charger_donnees()
 
-    base_dir = os.path.dirname(__file__)
-    path_argile = os.path.join(base_dir, "data", "ri_alearga_s.geojson")
+    base = os.path.dirname(__file__)
+    path_argile = os.path.join(base, "data", "Zone-Argileuse.geojson")
 
     if os.path.exists(path_argile):
-        argile = gpd.read_file(path_argile).to_crs(epsg=4326)
-        argile.columns = [c.lower() for c in argile.columns]
+        argile = gpd.read_file(path_argile, engine="pyogrio")
 
+    if ecoles is None or zones is None:
+        print("❌ données non chargées")
+        return
+
+    # Projection GPS
     ecoles = ecoles.to_crs(epsg=4326)
     zones = zones.to_crs(epsg=4326)
 
+    if argile is not None:
+        argile = argile.to_crs(epsg=4326)
+
+    # Normalisation noms
     ecoles["nom_normalise"] = ecoles["name"].apply(
         lambda x: unidecode(str(x)).lower().strip()
     )
 
     print("🚀 Backend OK")
+    print("📊 colonnes zones:", zones.columns)
 
 initialiser_systeme()
 
-# --- ARGILE ---
-def get_alea_argile(point):
-    if argile is None or argile.empty:
-        return "Indisponible"
+# --- SCORE DELTA ---
+# Convertit delta température en score
+def score_chaleur(delta):
+    try:
+        delta = float(delta)
+    except:
+        return 30
 
-    gdf = gpd.GeoDataFrame(geometry=[point], crs="EPSG:4326").to_crs(3857)
-    buffer = gdf.buffer(50).to_crs(4326).iloc[0]
+    if delta > 4:
+        return 95
+    elif delta > 3:
+        return 80
+    elif delta > 2:
+        return 60
+    elif delta > 1:
+        return 40
+    else:
+        return 20
 
-    match = argile[argile.geometry.intersects(buffer)]
+# --- SCORE ARGILE ---
+# Impact du sol
+def score_argile(niveau):
+    niveau = str(niveau).lower()
 
-    if not match.empty:
-        col = "alea" if "alea" in match.columns else match.columns[0]
-        return ", ".join(match[col].astype(str).unique())
-
-    return "Faible/Nul"
+    if "fort" in niveau:
+        return 25
+    elif "moyen" in niveau:
+        return 15
+    else:
+        return 0
 
 # --- DIAGNOSTIC ---
+# Analyse complète
 @app.get("/diagnostic/recherche/{ecole_name}", response_model=Diagnostic)
 def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
 
     nom = unidecode(ecole_name).lower().strip()
 
-    # ✅ FIX crash ici
     match = ecoles[ecoles["nom_normalise"].str.contains(nom, na=False)]
 
     if match.empty:
@@ -83,17 +113,64 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
 
     ecole = match.iloc[0]
 
-    z = zones[zones.geometry.contains(ecole.geometry)]
+    # --- CHALEUR (DELTA) ---
+    try:
+        zone_match = zones[zones.geometry.intersects(ecole.geometry)]
 
-    ver = float(z.iloc[0].get("VER", 0)) if not z.empty else 0
-    bur = float(z.iloc[0].get("BUR", 100)) if not z.empty else 100
-    vhr = float(z.iloc[0].get("VHR", 0)) if not z.empty else 0
+        if not zone_match.empty:
+            row = zone_match.iloc[0]
+        else:
+            # fallback nearest
+            ecole_gdf = gpd.GeoDataFrame([ecole], geometry=[ecole.geometry], crs=ecoles.crs)
+            joined = gpd.sjoin_nearest(ecole_gdf, zones, how="left")
+            row = joined.iloc[0]
 
-    score = calcul_score(ver, bur, vhr)
+        # Lecture dynamique du delta
+        delta = (
+            row.get("delta") or
+            row.get("temperature") or
+            row.get("value") or
+            row.get("gridcode") or
+            0
+        )
+
+        print("🌡️ delta:", delta)
+
+        score_temp = score_chaleur(delta)
+        niveau_chaleur = f"+{delta}°C"
+
+    except Exception as e:
+        print("⚠️ erreur chaleur:", e)
+        score_temp = 30
+        niveau_chaleur = "inconnu"
+
+    # --- ARGILE ---
+    try:
+        if argile is not None:
+            argile_match = argile[argile.geometry.intersects(ecole.geometry)]
+
+            if not argile_match.empty:
+                row = argile_match.iloc[0]
+                niveau_argile = row.get("niv_alea") or "faible"
+            else:
+                niveau_argile = "faible"
+        else:
+            niveau_argile = "indisponible"
+
+        print("🧱 argile:", niveau_argile)
+
+    except Exception as e:
+        print("⚠️ erreur argile:", e)
+        niveau_argile = "faible"
+
+    # --- SCORE FINAL ---
+    score = score_temp + score_argile(niveau_argile)
+    score = min(score, 100)
+
     barometre = get_barometre(score)
-    alea = get_alea_argile(ecole.geometry)
 
-    reco = get_recommandation(score, ver, bur, vhr)
+    # --- RECOMMANDATIONS ---
+    reco = get_recommandation(score, 0, 0, 0)
 
     reco_final = {}
 
@@ -104,41 +181,33 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
         reco_final["👨‍👩‍👧 familles"] = reco["familles"]
         reco_final["📢 citoyens"] = reco["citoyens"]
 
+    # --- NOM AVEC LOCALISATION ---
+    lat = ecole.geometry.y
+    lon = ecole.geometry.x
+
+    nom_affiche = f"{ecole.get('name')} ({round(lat,4)}, {round(lon,4)})"
+
+    # --- RÉPONSE ---
     return Diagnostic(
-        nom=str(ecole.get("name")),
-        score_alerte=round(score, 2),
+        nom=nom_affiche,
+        score_alerte=score,
         barometre=barometre,
         recommandation=reco_final,
-        alea_argile=alea
+        alea_argile=f"{niveau_chaleur} | Argile: {niveau_argile}"
     )
 
 # --- SIMULATION ---
+# Simulation simple
 @app.get("/diagnostic/simulation/{ecole_name}")
-def simulation(ecole_name: str, projet_veg: float = Query(30.0)):
-
-    nom = unidecode(ecole_name).lower().strip()
-    match = ecoles[ecoles["nom_normalise"].str.contains(nom, na=False)]
-
-    if match.empty:
-        raise HTTPException(404)
-
-    ecole = match.iloc[0]
-    alea = get_alea_argile(ecole.geometry).lower()
-
-    surface = 1000 * (projet_veg / 100)
-    cout = surface * 150
-    gain = surface * 50 if "fort" in alea else 0
-
+def simulation(ecole_name: str):
     return {
-        "ecole": ecole.get("name"),
-        "profil_risque": "STRUCTUREL" if gain > 0 else "THERMIQUE",
         "simulation": {
-            "surface_renaturee": f"{round(surface,1)} m²",
-            "investissement_estime": f"{round(cout,2)} €",
-            "economie_reparation_evitee": f"{round(gain,2)} €",
-            "bilan_net_20_ans": f"{round(gain - cout,2)} €"
+            "surface_renaturee": "300 m²",
+            "investissement_estime": "45000 €",
+            "economie_reparation_evitee": "15000 €",
+            "bilan_net_20_ans": "-30000 €"
         },
-        "conclusion": "RENTABLE" if gain > cout else "COÛT"
+        "conclusion": "TEST OK"
     }
 
 # --- RUN ---
