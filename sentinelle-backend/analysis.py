@@ -1,7 +1,7 @@
 import geopandas as gpd
 from shapely.geometry import Point
 
-# Chargement global de la base de données argile (à faire une seule fois)
+# Chargement global de la base de données argile
 try:
     gdf_argile = gpd.read_file('ri_alearga_s.geojson')
     # On s'assure que le système de coordonnées est en WGS84 (GPS standard)

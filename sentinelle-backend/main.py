@@ -54,7 +54,7 @@ def initialiser_systeme():
             ecoles["nom_normalise"] = ecoles[col_nom].apply(
                 lambda x: unidecode(str(x)).lower().strip() if pd.notnull(x) else ""
             )
-        print("🚀 Backend Sentinelle opérationnel (Ready for Pitch).")
+        print("🚀 Backend Sentinelle opérationnel.")
     except Exception as e:
         print(f"❌ Erreur Initialisation : {e}")
 
@@ -130,7 +130,7 @@ def diagnostic(
         recommandation=reco_finale,
         alea_argile=alea_rga
     )
-
+#simulateur d'action et de cout
 @app.get("/diagnostic/simulation/{ecole_name}", tags=["Simulation"])
 def simulation(ecole_name: str, projet_veg: float = Query(30.0, ge=0, le=100)):
     """Simulateur de ROI pour la végétalisation."""
