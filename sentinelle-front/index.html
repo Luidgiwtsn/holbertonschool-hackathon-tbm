@@ -1,181 +1,59 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Sentinelle</title>
-
-  <style>
-    #container { position: relative; }
-
-    #popup {
-      position: absolute;
-      background: #2b1d17;
-      color: white;
-      padding: 12px;
-      border-radius: 10px;
-      display: none;
-      z-index: 1000;
-      transform: translate(-50%, -410%);
-    }
-
-    #result, #simulation {
-      margin-top: 20px;
-      background: #111;
-      color: white;
-      padding: 15px;
-      border-radius: 10px;
-    }
-
-    li { margin-bottom: 5px; }
-  </style>
+  <title>🌿 Sentinelle</title>
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<h2>🌿 Sentinelle</h2>
+<div class="layout">
 
-<input type="text" id="search" placeholder="Nom école">
+  <!-- 🔍 SIDEBAR GAUCHE -->
+  <div class="sidebar">
 
-<select id="categorie">
-  <option value="public">👨‍👩‍👧 Public</option>
-  <option value="pro">🏛️ Pro</option>
-</select>
+    <h2>🌿 Sentinelle</h2>
 
-<button onclick="searchSchool()">Rechercher</button>
+    <input type="text" id="search" placeholder="Rechercher une école">
 
-<div id="container">
-  <div id="popup"></div>
+    <select id="categorie">
+      <option value="public">👨‍👩‍👧 Public</option>
+      <option value="pro">🏛️ Pro</option>
+    </select>
 
-  <iframe id="mapFrame"
-  width="100%" height="400"
-  src="https://felt.com/embed/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.84,-0.58,12z">
-  </iframe>
+    <button id="btnSearch">🔍 Rechercher</button>
+
+    <!-- Liste déroulante -->
+    <details open>
+      <summary>📋 Liste des écoles</summary>
+      <ul id="listeEcoles"></ul>
+    </details>
+
+  </div>
+
+  <!-- 🗺️ CARTE CENTRALE -->
+  <div class="map-container">
+
+    <iframe id="mapFrame"
+      src="https://felt.com/embed/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.84,-0.58,12z">
+    </iframe>
+
+    <div id="popup"></div>
+
+  </div>
+
+  <!-- 📊 PANEL DROIT -->
+  <div class="right-panel">
+
+    <div id="result"></div>
+
+    <div id="simulation"></div>
+
+  </div>
+
 </div>
 
-<div id="result"></div>
-<div id="simulation"></div>
-
-<script>
-let schoolsData = [];
-let currentSchool = null;
-
-function normalize(text) {
-  return text.toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-// 📦 DATA
-fetch("data/export.geojson")
-  .then(r => r.json())
-  .then(data => schoolsData = data.features);
-
-// 📍 popup
-function showPopup(name) {
-  let iframe = document.getElementById("mapFrame");
-  let rect = iframe.getBoundingClientRect();
-
-  let popup = document.getElementById("popup");
-  popup.style.display = "block";
-  popup.style.left = rect.left + rect.width/2 + "px";
-  popup.style.top = rect.top + rect.height/2 + "px";
-  popup.innerHTML = `🏫 ${name}`;
-}
-
-// 🔥 RECOMMANDATIONS (FIX ICI)
-function afficherRecommandations(data) {
-  console.log("DATA RECO:", data); // DEBUG
-
-  let html = `
-    <h3>${data.nom}</h3>
-    <p>🌡️ Score : ${data.score_alerte} (${data.barometre})</p>
-    <p>🧱 Argile : ${data.alea_argile}</p>
-  `;
-
-  if (!data.recommandation) {
-    html += "<p>❌ Aucune recommandation</p>";
-  } else {
-    Object.entries(data.recommandation).forEach(([section, liste]) => {
-      html += `<h4>${section}</h4><ul>`;
-
-      liste.forEach(item => {
-        html += `<li>${item}</li>`;
-      });
-
-      html += "</ul>";
-    });
-  }
-
-  document.getElementById("result").innerHTML = html;
-}
-
-// 🔥 SIMULATION (FIX)
-function afficherSimulation(data) {
-  console.log("DATA SIMU:", data); // DEBUG
-
-  if (!data.simulation) {
-    document.getElementById("simulation").innerHTML =
-      "<p>❌ Pas de simulation</p>";
-    return;
-  }
-
-  document.getElementById("simulation").innerHTML = `
-    <h3>📊 Simulation</h3>
-    <p><b>${data.profil_risque}</b></p>
-    <p>🌱 ${data.simulation.surface_renaturee}</p>
-    <p>💰 ${data.simulation.investissement_estime}</p>
-    <p>💸 ${data.simulation.economie_reparation_evitee}</p>
-    <p><b>${data.simulation.bilan_net_20_ans}</b></p>
-    <p>${data.conclusion}</p>
-  `;
-}
-
-// 🔍 RECHERCHE
-function searchSchool() {
-  let input = document.getElementById("search").value;
-
-  let school = schoolsData.find(f =>
-    normalize(f.properties.name || "").includes(normalize(input))
-  );
-
-  if (!school) return alert("École non trouvée");
-
-  currentSchool = school;
-
-  let [lon, lat] = school.geometry.coordinates;
-
-  // 🗺️ zoom
-  document.getElementById("mapFrame").src =
-    `https://felt.com/embed/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=${lat},${lon},17z`;
-
-  setTimeout(() => showPopup(school.properties.name), 500);
-
-  let categorie = document.getElementById("categorie").value;
-
-  // 🔥 DIAGNOSTIC
-  fetch(`http://127.0.0.1:8000/diagnostic/recherche/${encodeURIComponent(school.properties.name)}?categorie=${categorie}`)
-    .then(r => r.json())
-    .then(data => afficherRecommandations(data))
-    .catch(err => {
-      console.error(err);
-      document.getElementById("result").innerHTML =
-        "<p style='color:red'>❌ Erreur diagnostic</p>";
-    });
-
-  // 🔥 SIMULATION
-  fetch(`http://127.0.0.1:8000/diagnostic/simulation/${encodeURIComponent(school.properties.name)}`)
-    .then(r => r.json())
-    .then(data => afficherSimulation(data))
-    .catch(err => {
-      console.error(err);
-      document.getElementById("simulation").innerHTML =
-        "<p style='color:red'>❌ Erreur simulation</p>";
-    });
-}
-
-// 🔄 catégorie change
-document.getElementById("categorie").addEventListener("change", () => {
-  if (currentSchool) searchSchool();
-});
-</script>
+<script src="script.js"></script>
 
 </body>
 </html>
