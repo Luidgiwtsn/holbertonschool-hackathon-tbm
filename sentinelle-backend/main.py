@@ -18,7 +18,7 @@ class ProfilUtilisateur(str, Enum):
 app = FastAPI(
     title="Sentinelle Écoles API", 
     description="Plateforme de résilience climatique pour les établissements scolaires",
-    version="1.4.1"
+    version="1.5.0"
 )
 
 # --- 2. VARIABLES GLOBALES & CHARGEMENT ---
@@ -87,9 +87,9 @@ def accueil():
 @app.get("/diagnostic/recherche/{ecole_name}", response_model=Diagnostic, tags=["Diagnostic"])
 def diagnostic(
     ecole_name: str, 
-    categorie: ProfilUtilisateur = Query(..., description="FORCE l'utilisateur à s'identifier pour filtrer les données")
+    categorie: ProfilUtilisateur = Query(..., description="Filtre les recommandations selon le profil")
 ):
-    """Effectue un diagnostic filtré selon l'entonnoir utilisateur choisi."""
+    """Effectue un diagnostic structuré en JSON selon l'entonnoir utilisateur."""
     nom_cherche = unidecode(ecole_name).lower().strip()
     match = ecoles[ecoles["nom_normalise"].str.contains(nom_cherche)]
     
@@ -107,40 +107,33 @@ def diagnostic(
     score = calcul_score(ver, bur, vhr)
     alea_rga = get_alea_argile(ecole_row.geometry)
     
-    # --- FILTRAGE DYNAMIQUE DES RECOMMANDATIONS ---
-    reco_complete = get_recommandation(score, ver, bur, vhr)
-    sections = reco_complete.split("\n\n")
-    reco_finale = []
+    # --- GÉNÉRATION ET FILTRAGE JSON ---
+    reco_dict = get_recommandation(score, ver, bur, vhr)
+    reco_finale = {}
 
-    for section in sections:
-        if categorie == ProfilUtilisateur.pro:
-            if any(kw in section for kw in ["DÉCIDEURS", "INFRASTRUCTURE", "SAVOIR-FAIRE", "STRUCTURE"]):
-                reco_finale.append(section)
-        else:
-            if any(kw in section for kw in ["SANTÉ", "FAMILLES", "CITOYENNETÉ", "PSYCHOLOGIE"]):
-                reco_finale.append(section)
-
-    # Sécurité de repli avec message d'avertissement
-    if reco_finale:
-        texte_reco = "\n\n".join(reco_finale).strip()
+    if categorie == ProfilUtilisateur.pro:
+        # Profil Décideurs / Technique
+        reco_finale["🏗️ infrastructure_mairie"] = reco_dict["decideurs"]
+        reco_finale["🏫 gestion_etablissement"] = reco_dict["ecole"]
+        # Alerte technique spécifique RGA
+        if any(x in alea_rga.lower() for x in ["fort", "moyen", "2", "3"]):
+            reco_finale["alertes_techniques"] = [f"🚨 RISQUE GÉOLOGIQUE : Aléa RGA détecté ({alea_rga})."]
     else:
-        texte_reco = f"⚠️ [SYSTÈME] Impossible de filtrer pour '{categorie.value}'. Affichage complet :\n\n" + reco_complete
-
-    # Alerte Argile (Spécifique PRO)
-    if categorie == ProfilUtilisateur.pro and any(x in alea_rga.lower() for x in ["fort", "moyen", "2", "3"]):
-        texte_reco += f"\n\n🚨 ALERTE TECHNIQUE : Risque RGA détecté ({alea_rga})."
+        # Profil Familles / Public
+        reco_finale["🧒 sante_et_familles"] = reco_dict["familles"]
+        reco_finale["📢 engagement_citoyen"] = reco_dict["citoyens"]
 
     return Diagnostic(
         nom=str(ecole_row.get("name")),
         score_alerte=round(score, 2),
         barometre=get_barometre(score),
-        recommandation=texte_reco,
+        recommandation=reco_finale,
         alea_argile=alea_rga
     )
 
 @app.get("/diagnostic/simulation/{ecole_name}", tags=["Simulation"])
 def simulation(ecole_name: str, projet_veg: float = Query(30.0, ge=0, le=100)):
-    """Simulateur de ROI (Retour sur Investissement) pour la végétalisation."""
+    """Simulateur de ROI pour la végétalisation."""
     nom_cherche = unidecode(ecole_name).lower().strip()
     match = ecoles[ecoles["nom_normalise"].str.contains(nom_cherche)]
     if match.empty: raise HTTPException(status_code=404)

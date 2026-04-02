@@ -126,9 +126,10 @@ def get_recommandation(score, ver, bur, vhr):
             "7. ÉVÈNEMENT : Organiser une 'Nuit de la Fraîcheur' pour observer la biodiversité nocturne."
         ]
 
-    return (
-        f"🏛️ DÉCIDEURS & SOLS (MAIRIE/MÉTROPOLE) :\n" + "\n".join(infra) + "\n\n" +
-        f"🏫 SAVOIR-FAIRE & EAU (ÉCOLE) :\n" + "\n".join(ecole) + "\n\n" +
-        f"🧒 SANTÉ & PSYCHOLOGIE (FAMILLES) :\n" + "\n".join(famille) + "\n\n" +
-        f"📢 CITOYENNETÉ & SENSIBILISATION (PUBLIC) :\n" + "\n".join(public)
-    )
+    # reponse format .json
+    return {
+        "decideurs": infra,
+        "ecole": ecole,
+        "familles": famille,
+        "citoyens": public
+    }
