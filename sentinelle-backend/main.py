@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from unidecode import unidecode
 from database import charger_donnees
 from analysis import calcul_score, get_barometre, get_recommandation
@@ -9,170 +10,137 @@ import geopandas as gpd
 import os
 from enum import Enum
 
-# --- 1. DÉFINITION DU PARCOURS UTILISATEUR (ENTONNOIR) ---
+# --- PROFILS ---
 class ProfilUtilisateur(str, Enum):
-    public = "public"  # Parcours : Familles, Parents, Riverains
-    pro = "pro"        # Parcours : Mairies, Élus, Services Techniques
+    public = "public"
+    pro = "pro"
 
-# Initialisation de l'API
-app = FastAPI(
-    title="Sentinelle Écoles API", 
-    description="Plateforme de résilience climatique pour les établissements scolaires",
-    version="1.4.1"
+app = FastAPI()
+
+# ✅ CORS FIX
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# --- 2. VARIABLES GLOBALES & CHARGEMENT ---
+# --- DATA ---
 ecoles = None
 zones = None
 argile = None 
 
 def initialiser_systeme():
     global ecoles, zones, argile
-    try:
-        ecoles, zones = charger_donnees()
-        base_dir = os.path.dirname(__file__)
-        geojson_path = os.path.join(base_dir, 'data', 'ri_alearga_s.geojson')
-        
-        if os.path.exists(geojson_path):
-            argile = gpd.read_file(geojson_path).to_crs(epsg=4326)
-            argile.columns = [c.lower() for c in argile.columns]
-            print("✅ GÉO-DONNÉES ARGILE : Chargées")
-        
-        if ecoles is not None:
-            if not isinstance(ecoles, gpd.GeoDataFrame):
-                ecoles = gpd.GeoDataFrame(ecoles, geometry=gpd.points_from_xy(ecoles.lon, ecoles.lat))
-            ecoles = ecoles.to_crs(epsg=4326)
+    ecoles, zones = charger_donnees()
 
-            # Nettoyage des types pour éviter le "NAN"
-            colonnes_type = ['school:FR', 'amenity', 'description']
-            for col in colonnes_type:
-                if col in ecoles.columns:
-                    ecoles[col] = ecoles[col].astype(str).replace(['nan', 'None', 'NaN'], 'Établissement')
+    base_dir = os.path.dirname(__file__)
+    path_argile = os.path.join(base_dir, "data", "ri_alearga_s.geojson")
 
-            # Indexation pour la recherche textuelle
-            col_nom = "name" if "name" in ecoles.columns else ecoles.columns[0]
-            ecoles["nom_normalise"] = ecoles[col_nom].apply(
-                lambda x: unidecode(str(x)).lower().strip() if pd.notnull(x) else ""
-            )
-        print("🚀 Backend Sentinelle opérationnel (Ready for Pitch).")
-    except Exception as e:
-        print(f"❌ Erreur Initialisation : {e}")
+    if os.path.exists(path_argile):
+        argile = gpd.read_file(path_argile).to_crs(epsg=4326)
+        argile.columns = [c.lower() for c in argile.columns]
+
+    ecoles = ecoles.to_crs(epsg=4326)
+    zones = zones.to_crs(epsg=4326)
+
+    ecoles["nom_normalise"] = ecoles["name"].apply(
+        lambda x: unidecode(str(x)).lower().strip()
+    )
+
+    print("🚀 Backend OK")
 
 initialiser_systeme()
 
-# --- 3. ANALYSE SPATIALE ---
+# --- ARGILE ---
+def get_alea_argile(point):
+    if argile is None or argile.empty:
+        return "Indisponible"
 
-def get_alea_argile(point_ecole):
-    """Détection du risque géologique par tampon (buffer) de 50m."""
-    if argile is None or argile.empty: return "Indisponible"
-    gdf_ecole = gpd.GeoDataFrame(geometry=[point_ecole], crs="EPSG:4326").to_crs(epsg=3857)
-    buffer_50m = gdf_ecole.buffer(50).to_crs(epsg=4326).iloc[0]
-    match = argile[argile.geometry.intersects(buffer_50m)]
+    gdf = gpd.GeoDataFrame(geometry=[point], crs="EPSG:4326").to_crs(3857)
+    buffer = gdf.buffer(50).to_crs(4326).iloc[0]
+
+    match = argile[argile.geometry.intersects(buffer)]
+
     if not match.empty:
-        col_alea = 'alea' if 'alea' in match.columns else match.columns[0]
-        return ", ".join(match[col_alea].astype(str).unique())
+        col = "alea" if "alea" in match.columns else match.columns[0]
+        return ", ".join(match[col].astype(str).unique())
+
     return "Faible/Nul"
 
-# --- 4. ENDPOINTS (LOGIQUE MÉTIER) ---
+# --- DIAGNOSTIC ---
+@app.get("/diagnostic/recherche/{ecole_name}", response_model=Diagnostic)
+def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
 
-@app.get("/", tags=["Système"])
-def accueil():
-    """Accueil et orientation de l'utilisateur."""
-    return {
-        "projet": "Sentinelle Écoles",
-        "statut": "En ligne",
-        "action_requise": "Veuillez choisir un profil (?categorie=pro ou ?categorie=public) pour vos recherches."
-    }
+    nom = unidecode(ecole_name).lower().strip()
 
-@app.get("/diagnostic/recherche/{ecole_name}", response_model=Diagnostic, tags=["Diagnostic"])
-def diagnostic(
-    ecole_name: str, 
-    categorie: ProfilUtilisateur = Query(..., description="FORCE l'utilisateur à s'identifier pour filtrer les données")
-):
-    """Effectue un diagnostic filtré selon l'entonnoir utilisateur choisi."""
-    nom_cherche = unidecode(ecole_name).lower().strip()
-    match = ecoles[ecoles["nom_normalise"].str.contains(nom_cherche)]
-    
-    if match.empty: 
-        raise HTTPException(status_code=404, detail="Établissement non référencé")
+    # ✅ FIX crash ici
+    match = ecoles[ecoles["nom_normalise"].str.contains(nom, na=False)]
 
-    ecole_row = match.iloc[0]
-    z_match = zones[zones.geometry.contains(ecole_row.geometry)]
-    
-    # Données climatiques
-    ver = float(z_match.iloc[0].get("VER", 0)) if not z_match.empty else 0.0
-    bur = float(z_match.iloc[0].get("BUR", 100)) if not z_match.empty else 100.0
-    vhr = float(z_match.iloc[0].get("VHR", 0)) if not z_match.empty else 0.0
+    if match.empty:
+        raise HTTPException(404, "École non trouvée")
+
+    ecole = match.iloc[0]
+
+    z = zones[zones.geometry.contains(ecole.geometry)]
+
+    ver = float(z.iloc[0].get("VER", 0)) if not z.empty else 0
+    bur = float(z.iloc[0].get("BUR", 100)) if not z.empty else 100
+    vhr = float(z.iloc[0].get("VHR", 0)) if not z.empty else 0
 
     score = calcul_score(ver, bur, vhr)
-    alea_rga = get_alea_argile(ecole_row.geometry)
-    
-    # --- FILTRAGE DYNAMIQUE DES RECOMMANDATIONS ---
-    reco_complete = get_recommandation(score, ver, bur, vhr)
-    sections = reco_complete.split("\n\n")
-    reco_finale = []
+    barometre = get_barometre(score)
+    alea = get_alea_argile(ecole.geometry)
 
-    for section in sections:
-        if categorie == ProfilUtilisateur.pro:
-            if any(kw in section for kw in ["DÉCIDEURS", "INFRASTRUCTURE", "SAVOIR-FAIRE", "STRUCTURE"]):
-                reco_finale.append(section)
-        else:
-            if any(kw in section for kw in ["SANTÉ", "FAMILLES", "CITOYENNETÉ", "PSYCHOLOGIE"]):
-                reco_finale.append(section)
+    reco = get_recommandation(score, ver, bur, vhr)
 
-    # Sécurité de repli avec message d'avertissement
-    if reco_finale:
-        texte_reco = "\n\n".join(reco_finale).strip()
+    reco_final = {}
+
+    if categorie == ProfilUtilisateur.pro:
+        reco_final["🏗️ infrastructure"] = reco["decideurs"]
+        reco_final["🏫 ecole"] = reco["ecole"]
     else:
-        texte_reco = f"⚠️ [SYSTÈME] Impossible de filtrer pour '{categorie.value}'. Affichage complet :\n\n" + reco_complete
-
-    # Alerte Argile (Spécifique PRO)
-    if categorie == ProfilUtilisateur.pro and any(x in alea_rga.lower() for x in ["fort", "moyen", "2", "3"]):
-        texte_reco += f"\n\n🚨 ALERTE TECHNIQUE : Risque RGA détecté ({alea_rga})."
+        reco_final["👨‍👩‍👧 familles"] = reco["familles"]
+        reco_final["📢 citoyens"] = reco["citoyens"]
 
     return Diagnostic(
-        nom=str(ecole_row.get("name")),
+        nom=str(ecole.get("name")),
         score_alerte=round(score, 2),
-        barometre=get_barometre(score),
-        recommandation=texte_reco,
-        alea_argile=alea_rga
+        barometre=barometre,
+        recommandation=reco_final,
+        alea_argile=alea
     )
 
-@app.get("/diagnostic/simulation/{ecole_name}", tags=["Simulation"])
-def simulation(ecole_name: str, projet_veg: float = Query(30.0, ge=0, le=100)):
-    """Simulateur de ROI (Retour sur Investissement) pour la végétalisation."""
-    nom_cherche = unidecode(ecole_name).lower().strip()
-    match = ecoles[ecoles["nom_normalise"].str.contains(nom_cherche)]
-    if match.empty: raise HTTPException(status_code=404)
-    
-    ecole_info = match.iloc[0]
-    alea = get_alea_argile(ecole_info.geometry).lower()
-    type_ecole = str(ecole_info.get('school:FR', 'Établissement')).lower()
-    
-    # Calcul des surfaces types
-    surfaces = {"lycee": 2500, "college": 1800, "maternelle": 700, "kindergarten": 400}
-    surface_ref = 1000 
-    for k, v in surfaces.items():
-        if k in type_ecole:
-            surface_ref = v
-            break
+# --- SIMULATION ---
+@app.get("/diagnostic/simulation/{ecole_name}")
+def simulation(ecole_name: str, projet_veg: float = Query(30.0)):
 
-    surface_a_traiter = (surface_ref * 1.2) * (projet_veg/100)
-    cout = surface_a_traiter * 150 
-    gain = (surface_ref * 50) if any(x in alea for x in ["fort", "3", "moyen", "2"]) else 0
-    bilan = gain - cout
+    nom = unidecode(ecole_name).lower().strip()
+    match = ecoles[ecoles["nom_normalise"].str.contains(nom, na=False)]
+
+    if match.empty:
+        raise HTTPException(404)
+
+    ecole = match.iloc[0]
+    alea = get_alea_argile(ecole.geometry).lower()
+
+    surface = 1000 * (projet_veg / 100)
+    cout = surface * 150
+    gain = surface * 50 if "fort" in alea else 0
 
     return {
-        "ecole": ecole_info.get("name"),
-        "profil_risque": "STRUCTUREL (Argile)" if gain > 0 else "THERMIQUE (Canicule)",
+        "ecole": ecole.get("name"),
+        "profil_risque": "STRUCTUREL" if gain > 0 else "THERMIQUE",
         "simulation": {
-            "surface_renaturee": f"{round(surface_a_traiter, 1)} m²",
-            "investissement_estime": f"{round(cout, 2)} €",
-            "economie_reparation_evitee": f"{round(gain, 2)} €",
-            "bilan_net_20_ans": f"{round(bilan, 2)} €"
+            "surface_renaturee": f"{round(surface,1)} m²",
+            "investissement_estime": f"{round(cout,2)} €",
+            "economie_reparation_evitee": f"{round(gain,2)} €",
+            "bilan_net_20_ans": f"{round(gain - cout,2)} €"
         },
-        "conclusion": "INVESTISSEMENT RENTABLE" if bilan > 0 else "DÉPENSE SANTÉ PUBLIQUE"
+        "conclusion": "RENTABLE" if gain > cout else "COÛT"
     }
 
+# --- RUN ---
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

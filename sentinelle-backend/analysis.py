@@ -1,7 +1,7 @@
 import geopandas as gpd
 from shapely.geometry import Point
 
-# Chargement global de la base de données argile (à faire une seule fois)
+# Chargement global de la base de données argile
 try:
     gdf_argile = gpd.read_file('ri_alearga_s.geojson')
     # On s'assure que le système de coordonnées est en WGS84 (GPS standard)
@@ -126,9 +126,10 @@ def get_recommandation(score, ver, bur, vhr):
             "7. ÉVÈNEMENT : Organiser une 'Nuit de la Fraîcheur' pour observer la biodiversité nocturne."
         ]
 
-    return (
-        f"🏛️ DÉCIDEURS & SOLS (MAIRIE/MÉTROPOLE) :\n" + "\n".join(infra) + "\n\n" +
-        f"🏫 SAVOIR-FAIRE & EAU (ÉCOLE) :\n" + "\n".join(ecole) + "\n\n" +
-        f"🧒 SANTÉ & PSYCHOLOGIE (FAMILLES) :\n" + "\n".join(famille) + "\n\n" +
-        f"📢 CITOYENNETÉ & SENSIBILISATION (PUBLIC) :\n" + "\n".join(public)
-    )
+    # reponse format .json
+    return {
+        "decideurs": infra,
+        "ecole": ecole,
+        "familles": famille,
+        "citoyens": public
+    }
