@@ -1,42 +1,52 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Sentinelle</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentinelle - Résilience Scolaire</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div class="app">
+        <div class="map">
+            <iframe 
+                id="mapFrame" 
+                src="https://felt.com/embed/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.837,-0.579,12z&legend=1"
+                allow="geolocation"
+                title="Carte Sentinelle">
+            </iframe>
+        </div>
 
-<div class="app">
+        <div class="panel">
+            <header>
+                <h2>🌿 Sentinelle</h2>
+                <div class="profil-selector">
+                    <button id="btn-public" class="active" onclick="setProfil('public')">🧒 Public</button>
+                    <button id="btn-pro" onclick="setProfil('pro')">🏗️ Pro</button>
+                </div>
+            </header>
 
-  <!-- 🗺️ CARTE -->
-  <div class="map">
-    <iframe id="mapFrame"
-      src="https://felt.com/embed/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2eYCD?loc=44.902,-0.6695,11.06z&legend=1">
-    </iframe>
-  </div>
+            <div class="search-section">
+                <input type="text" id="search" placeholder="Nom de l'école (ex: Pasteur)..." onkeyup="if(event.key==='Enter') searchSchool()">
+                <button class="primary-btn" onclick="searchSchool()">Analyser</button>
+            </div>
 
-  <!-- 📋 PANEL -->
-  <div class="panel">
+            <div id="result-container">
+                <h3>📊 Diagnostic de Résilience</h3>
+                <div id="result">
+                    <p class="placeholder-text">Sélectionnez un établissement dans la liste ou utilisez la recherche pour lancer l'analyse thermique et géologique.</p>
+                </div>
+            </div>
 
-    <h2>🌿 Sentinelle</h2>
+            <div id="listeEcoles-container">
+                <h3>🏫 Établissements répertoriés</h3>
+                <ul id="listeEcoles">
+                    <li class="loading-item">Chargement des données géo...</li>
+                </ul>
+            </div>
+        </div>
+    </div>
 
-    <!-- 🔍 RECHERCHE -->
-    <input type="text" id="search" placeholder="Nom de l'école...">
-    <button onclick="searchSchool()">Rechercher</button>
-
-    <!-- 📊 RESULTAT -->
-    <h3>Résultat</h3>
-    <div id="result">Clique sur une école 👇</div>
-
-    <!-- 📚 LISTE -->
-    <h3>Liste des écoles</h3>
-    <ul id="listeEcoles"></ul>
-
-  </div>
-
-</div>
-
-<script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
