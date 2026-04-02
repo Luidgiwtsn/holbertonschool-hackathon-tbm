@@ -10,17 +10,18 @@ import os
 from enum import Enum
 import uvicorn
 
+
 # --- PROFILS ---
-# Types d'utilisateurs
 class ProfilUtilisateur(str, Enum):
     public = "public"
     pro = "pro"
 
+
 # --- INIT API ---
 app = FastAPI()
 
+
 # --- CORS ---
-# Autorise le frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,13 +30,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # --- DATA ---
 ecoles = None
 zones = None
 argile = None
 
+
 # --- INITIALISATION ---
-# Charge les GeoJSON
 def initialiser_systeme():
     global ecoles, zones, argile
 
@@ -51,56 +53,54 @@ def initialiser_systeme():
         print("❌ données non chargées")
         return
 
-    # Projection GPS
     ecoles = ecoles.to_crs(epsg=4326)
     zones = zones.to_crs(epsg=4326)
 
     if argile is not None:
         argile = argile.to_crs(epsg=4326)
 
-    # Normalisation noms
     ecoles["nom_normalise"] = ecoles["name"].apply(
         lambda x: unidecode(str(x)).lower().strip()
     )
 
     print("🚀 Backend OK")
-    print("📊 colonnes zones:", zones.columns)
+
 
 initialiser_systeme()
 
-# --- SCORE DELTA ---
-# Convertit delta température en score
+
+# --- SCORE CHALEUR ---
 def score_chaleur(delta):
     try:
         delta = float(delta)
     except:
+        return 40
+
+    if delta >= 4:
+        return 100
+    elif delta >= 3:
+        return 85
+    elif delta >= 2:
+        return 70
+    elif delta >= 1:
+        return 50
+    else:
         return 30
 
-    if delta > 4:
-        return 95
-    elif delta > 3:
-        return 80
-    elif delta > 2:
-        return 60
-    elif delta > 1:
-        return 40
-    else:
-        return 20
 
 # --- SCORE ARGILE ---
-# Impact du sol
 def score_argile(niveau):
     niveau = str(niveau).lower()
 
     if "fort" in niveau:
-        return 25
+        return 20
     elif "moyen" in niveau:
-        return 15
+        return 10
     else:
         return 0
 
+
 # --- DIAGNOSTIC ---
-# Analyse complète
 @app.get("/diagnostic/recherche/{ecole_name}", response_model=Diagnostic)
 def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
 
@@ -113,19 +113,17 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
 
     ecole = match.iloc[0]
 
-    # --- CHALEUR (DELTA) ---
+    # --- CHALEUR ---
     try:
         zone_match = zones[zones.geometry.intersects(ecole.geometry)]
 
         if not zone_match.empty:
             row = zone_match.iloc[0]
         else:
-            # fallback nearest
             ecole_gdf = gpd.GeoDataFrame([ecole], geometry=[ecole.geometry], crs=ecoles.crs)
             joined = gpd.sjoin_nearest(ecole_gdf, zones, how="left")
             row = joined.iloc[0]
 
-        # Lecture dynamique du delta
         delta = (
             row.get("delta") or
             row.get("temperature") or
@@ -134,14 +132,11 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
             0
         )
 
-        print("🌡️ delta:", delta)
-
         score_temp = score_chaleur(delta)
         niveau_chaleur = f"+{delta}°C"
 
-    except Exception as e:
-        print("⚠️ erreur chaleur:", e)
-        score_temp = 30
+    except:
+        score_temp = 40
         niveau_chaleur = "inconnu"
 
     # --- ARGILE ---
@@ -156,15 +151,11 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
                 niveau_argile = "faible"
         else:
             niveau_argile = "indisponible"
-
-        print("🧱 argile:", niveau_argile)
-
-    except Exception as e:
-        print("⚠️ erreur argile:", e)
+    except:
         niveau_argile = "faible"
 
     # --- SCORE FINAL ---
-    score = score_temp + score_argile(niveau_argile)
+    score = int(score_temp * 0.8 + score_argile(niveau_argile) * 0.2)
     score = min(score, 100)
 
     barometre = get_barometre(score)
@@ -181,13 +172,11 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
         reco_final["👨‍👩‍👧 familles"] = reco["familles"]
         reco_final["📢 citoyens"] = reco["citoyens"]
 
-    # --- NOM AVEC LOCALISATION ---
     lat = ecole.geometry.y
     lon = ecole.geometry.x
 
     nom_affiche = f"{ecole.get('name')} ({round(lat,4)}, {round(lon,4)})"
 
-    # --- RÉPONSE ---
     return Diagnostic(
         nom=nom_affiche,
         score_alerte=score,
@@ -196,19 +185,94 @@ def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(...)):
         alea_argile=f"{niveau_chaleur} | Argile: {niveau_argile}"
     )
 
-# --- SIMULATION ---
-# Simulation simple
+
+# --- SIMULATION AMÉLIORÉE ---
 @app.get("/diagnostic/simulation/{ecole_name}")
 def simulation(ecole_name: str):
+
+    nom = unidecode(ecole_name).lower().strip()
+
+    match = ecoles[ecoles["nom_normalise"].str.contains(nom, na=False)]
+
+    if match.empty:
+        raise HTTPException(404, "École non trouvée")
+
+    ecole = match.iloc[0]
+
+    # --- CHALEUR ---
+    try:
+        zone_match = zones[zones.geometry.intersects(ecole.geometry)]
+
+        if not zone_match.empty:
+            row = zone_match.iloc[0]
+        else:
+            ecole_gdf = gpd.GeoDataFrame([ecole], geometry=[ecole.geometry], crs=ecoles.crs)
+            row = gpd.sjoin_nearest(ecole_gdf, zones).iloc[0]
+
+        delta = float(
+            row.get("delta") or
+            row.get("temperature") or
+            row.get("value") or
+            row.get("gridcode") or
+            1
+        )
+    except:
+        delta = 1
+
+    # --- ARGILE ---
+    try:
+        if argile is not None:
+            argile_match = argile[argile.geometry.intersects(ecole.geometry)]
+            if not argile_match.empty:
+                niveau_argile = str(argile_match.iloc[0].get("niv_alea", "faible")).lower()
+            else:
+                niveau_argile = "faible"
+        else:
+            niveau_argile = "faible"
+    except:
+        niveau_argile = "faible"
+
+    # --- TYPE ECOLE ---
+    type_ecole = str(ecole.get("school:FR", "")).lower()
+
+    if "lycee" in type_ecole:
+        surface_base = 2500
+    elif "college" in type_ecole:
+        surface_base = 1800
+    elif "maternelle" in type_ecole:
+        surface_base = 700
+    else:
+        surface_base = 1200
+
+    # --- CALCULS ---
+    surface = surface_base * (delta / 4)
+    cout = surface * 120
+
+    gain = surface * 50
+
+    if "fort" in niveau_argile:
+        gain *= 2
+    elif "moyen" in niveau_argile:
+        gain *= 1.5
+
+    if delta > 3:
+        gain *= 1.3
+
+    bilan = gain - cout
+
+    profil = "STRUCTUREL (Argile)" if "fort" in niveau_argile else "THERMIQUE (Chaleur)"
+
     return {
+        "profil_risque": profil,
         "simulation": {
-            "surface_renaturee": "300 m²",
-            "investissement_estime": "45000 €",
-            "economie_reparation_evitee": "15000 €",
-            "bilan_net_20_ans": "-30000 €"
+            "surface_renaturee": f"{round(surface)} m²",
+            "investissement_estime": f"{round(cout)} €",
+            "economie_reparation_evitee": f"{round(gain)} €",
+            "bilan_net_20_ans": f"{round(bilan)} €"
         },
-        "conclusion": "TEST OK"
+        "conclusion": "INVESTISSEMENT RENTABLE" if bilan > 0 else "COÛT NÉCESSAIRE"
     }
+
 
 # --- RUN ---
 if __name__ == "__main__":
