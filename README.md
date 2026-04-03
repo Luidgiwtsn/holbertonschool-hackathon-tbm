@@ -70,6 +70,8 @@ Lien du site de la carte: https://felt.com/map/Untitled-Map-trd59Cqj4RuKu8WX9Cw2
 
 - Données d'îlot de chaleur ou de fraicheur urbains basé sur l'analyse des températures de surface de 2022 - source : Datahub Métropole de Bordeaux.
 
+- Données des zones argileuses basé sur l'Aléa retrait/gonflement des argiles - source : Datahub Métropole de Bordeaux.
+
 - Données sur les établissements scolaires - Overpass Turbo (OpenStreetMap).
 
 ## Fonctionnalités:
