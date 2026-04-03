@@ -1,52 +1,64 @@
 import geopandas as gpd
 import os
+from unidecode import unidecode
 
 def charger_donnees():
     """
-    Charge les fichiers GeoJSON et harmonise les systèmes de coordonnées (CRS).
-    Indispensable pour que les calculs de 'contains' ou 'intersects' fonctionnent.
+    Charge les données des écoles et des zones LCZ.
+    Retourne un tuple (ecoles, zones), avec None si échec.
     """
-    # 1. Définition des chemins
     base_path = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(base_path, "data")
-    
+
     file_ecoles = os.path.join(data_dir, "export.geojson")
     file_zones = os.path.join(data_dir, "lcz_bordeaux.geojson")
-    
-    print(f"🔍 Initialisation de la base de données...")
-
-    # 2. Vérification de la présence des fichiers
-    if not os.path.exists(file_ecoles):
-        print(f"❌ ERREUR CRITIQUE : {file_ecoles} introuvable !")
-        return None, None
-    if not os.path.exists(file_zones):
-        print(f"⚠️ ALERTE : {file_zones} introuvable ! Analyse spatiale limitée.")
-        # On peut continuer avec ecoles seulement si besoin, mais ici on gère l'erreur
-        return None, None
 
     try:
-        # 3. Lecture des GeoJSON
-        ecoles = gpd.read_file(file_ecoles)
-        zones = gpd.read_file(file_zones)
+        # --- 1. Chargement des écoles ---
+        if not os.path.exists(file_ecoles):
+            print(f"❌ FICHIER MANQUANT : {file_ecoles}")
+            return None, None
 
-        # 4. HARMONISATION DU SYSTÈME DE COORDONNÉES (CRS)
-        # On force tout en EPSG:4326 (Coordonnées GPS standards WGS84)
-        # C'est l'étape qui évite les erreurs de calcul spatial
-        if ecoles.crs != "EPSG:4326":
-            print(f"🔄 Reprojection des écoles vers EPSG:4326...")
-            ecoles = ecoles.to_crs(epsg=4326)
-            
-        if zones.crs != "EPSG:4326":
-            print(f"🔄 Reprojection des zones LCZ vers EPSG:4326...")
-            zones = zones.to_crs(epsg=4326)
+        ecoles = gpd.read_file(file_ecoles).to_crs(epsg=4326)
+        print(f"✅ Écoles chargées : {len(ecoles)} points.")
 
-        # 5. NETTOYAGE DES COLONNES
-        # On passe les colonnes en MAJUSCULES pour correspondre à ton analysis.py (VER, BUR, VHR)
-        zones.columns = [c.upper() if c != 'geometry' else 'geometry' for c in zones.columns]
+        # Normalisation du nom de colonne principal
+        col_nom = next(
+            (c for c in ['name', 'nom', 'NOM', 'libelle'] if c in ecoles.columns),
+            ecoles.columns[0]
+        )
+        ecoles = ecoles.rename(columns={col_nom: 'nom'})
 
-        print("✅ GÉO-DONNÉES : Chargement et synchronisation réussis !")
+        # Normalisation de la colonne adresse si elle existe
+        col_adr = next(
+            (c for c in ['adresse', 'address', 'ADR', 'ADRESSE'] if c in ecoles.columns),
+            None
+        )
+        if col_adr and col_adr != 'adresse':
+            ecoles = ecoles.rename(columns={col_adr: 'adresse'})
+
+        # Colonne de recherche sans accents et en majuscules
+        ecoles['NOM_RECHERCHE'] = (
+            ecoles['nom']
+            .astype(str)
+            .apply(lambda x: unidecode(x).upper().strip())
+        )
+
+        # --- 2. Chargement des zones thermiques LCZ ---
+        if not os.path.exists(file_zones):
+            print(f"❌ FICHIER MANQUANT : {file_zones}")
+            return ecoles, None
+
+        zones = gpd.read_file(file_zones).to_crs(epsg=4326)
+
+        # Normalisation des noms de colonnes en minuscules
+        zones.columns = [c.lower().strip() for c in zones.columns]
+
+        print(f"✅ Zones LCZ chargées : {len(zones)} polygones.")
+        print(f"📊 Colonnes LCZ : {list(zones.columns)}")
+
         return ecoles, zones
 
     except Exception as e:
-        print(f"❌ ERREUR LECTURE OU TRAITEMENT : {e}")
+        print(f"❌ ERREUR CRITIQUE DATABASE : {e}")
         return None, None

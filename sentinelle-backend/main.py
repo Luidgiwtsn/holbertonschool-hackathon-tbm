@@ -1,147 +1,146 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from unidecode import unidecode
-from pydantic import BaseModel
-from typing import Dict, List
 import uvicorn
-import geopandas as gpd
-import pandas as pd
-import os
-from enum import Enum
-from models import DiagnosticResponse
+import random
+from unidecode import unidecode
 
-# --- MODÈLES DE DONNÉES ---
-class ProfilUtilisateur(str, Enum):
-    public = "public"
-    pro = "pro"
+from database import charger_donnees
+from analysis import (
+    calcul_score,
+    get_barometre,
+    get_recommandation,
+    load_argile_data,
+    check_risque_argile,
+    dimension_to_lcz,
+)
 
-class DiagnosticResponse(BaseModel):
-    nom: str
-    score_alerte: float
-    barometre: str
-    recommandation: Dict[str, List[str]]
-    alea_argile: str
-
-app = FastAPI(title="Sentinelle API")
+app = FastAPI(title="Sentinelle API", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Variables globales pour stocker les données en mémoire
-ecoles, zones, argile = None, None, None
+ecoles, zones = None, None
 
-def initialiser_systeme():
-    global ecoles, zones, argile
-    try:
-        from database import charger_donnees
-        # On récupère les GeoDataFrames synchronisés par database.py
-        ecoles, zones = charger_donnees()
-        
-        base_dir = os.path.dirname(__file__)
-        # Chargement de l'aléa argile (RGA)
-        geojson_path = os.path.join(base_dir, 'data', 'ri_alearga_s.geojson')
-        if os.path.exists(geojson_path):
-            argile = gpd.read_file(geojson_path).to_crs(epsg=4326)
-            argile.columns = [c.lower() for c in argile.columns]
-        
-        if ecoles is not None:
-            # Normalisation du nom pour la recherche textuelle
-            col_nom = "name" if "name" in ecoles.columns else ecoles.columns[0]
-            ecoles["nom_normalise"] = ecoles[col_nom].apply(
-                lambda x: unidecode(str(x)).lower().strip()
-            )
-        
-        print("✅ Backend Initialisé : Données prêtes et synchronisées.")
-    except Exception as e:
-        print(f"❌ Erreur lors de l'initialisation : {e}")
 
-# Lancement au démarrage
-initialiser_systeme()
+@app.on_event("startup")
+async def startup():
+    global ecoles, zones
+    ecoles, zones = charger_donnees()
+    load_argile_data()
 
-def get_alea_argile(point):
-    """Recherche spatiale de l'aléa retrait-gonflement des argiles."""
-    if argile is None or argile.empty: return "Indisponible"
-    # Petit tampon de 50m autour de l'école pour capter l'aléa local
-    match = argile[argile.geometry.intersects(point.buffer(0.0005))] 
-    if not match.empty:
-        # On cherche la colonne de l'aléa (nommée souvent 'alea' ou 'niv_alea')
-        for col in ['alea', 'niv_alea', 'classe']:
-            if col in match.columns:
-                return str(match.iloc[0][col])
-    return "Faible"
 
-@app.get("/diagnostic/recherche/{ecole_name}", response_model=DiagnosticResponse)
-async def diagnostic(ecole_name: str, categorie: ProfilUtilisateur = Query(ProfilUtilisateur.public)):
-    # Import local pour éviter les imports circulaires
-    from analysis import calcul_score, get_barometre, get_recommandation
-    
-    nom_cherche = unidecode(ecole_name).lower().strip()
-    match = ecoles[ecoles["nom_normalise"].str.contains(nom_cherche)]
-    
+@app.get("/")
+async def root():
+    return {"status": "Sentinelle API opérationnelle", "version": "2.0"}
+
+
+@app.get("/diagnostic/recherche/{ecole_name}")
+async def diagnostic(ecole_name: str, categorie: str = "public"):
+    if ecoles is None or zones is None:
+        raise HTTPException(status_code=500, detail="Base de données non chargée")
+
+    # --- Recherche de l'école ---
+    query = unidecode(ecole_name).upper().strip()
+    match = ecoles[ecoles["NOM_RECHERCHE"].str.contains(query, na=False)]
+
     if match.empty:
-        raise HTTPException(404, "École non trouvée")
-    
+        raise HTTPException(status_code=404, detail=f"École '{ecole_name}' non trouvée")
+
     row = match.iloc[0]
-    
-    # --- LOGIQUE SPATIALE LCZ (Chaleur) ---
-    # On cherche dans quelle zone LCZ se trouve le point de l'école
-    z = zones[zones.geometry.contains(row.geometry)]
-    
-    if not z.empty:
-        # On récupère les indicateurs VER, BUR, VHR (formatés par database.py)
-        v = float(z.iloc[0].get("VER", 0))
-        b = float(z.iloc[0].get("BUR", 0))
-        vh = float(z.iloc[0].get("VHR", 0))
-    else:
-        # Valeurs par défaut si hors zone (pour éviter le 100% rouge)
-        v, b, vh = 20, 50, 30
+    point = row.geometry
 
-    # Calcul via le moteur analysis.py
-    score = calcul_score(v, b, vh)
-    recos = get_recommandation(score, v, b, vh)
-    
-    # Filtrage des recommandations selon le profil (Diagnostic 7x4)
-    reco_f = {}
-    if categorie == ProfilUtilisateur.pro:
-        reco_f["🏗️ Infrastructure"] = recos.get("decideurs", [])
-        reco_f["🏫 Gestion École"] = recos.get("ecole", [])
-    else:
-        reco_f["🧒 Santé & Familles"] = recos.get("familles", [])
-        reco_f["📢 Engagement Citoyen"] = recos.get("citoyens", [])
+    print(f"\n{'='*50}")
+    print(f"🔍 ANALYSE : {row['nom']}")
 
-    return DiagnosticResponse(
-        nom=str(row.get("name", "École")),
-        score_alerte=round(score, 2),
-        barometre=get_barometre(score),
-        recommandation=reco_f,
-        alea_argile=get_alea_argile(row.geometry)
-    )
+    # --- Recherche de la zone LCZ la plus proche ---
+    # Buffer 0.001° ≈ ~100m, suffisant pour couvrir les zones LCZ
+    inter = zones[zones.geometry.intersects(point.buffer(0.001))]
+
+    if inter.empty:
+        # Fallback : zone la plus proche géométriquement
+        print("⚠️  Aucune intersection directe — recherche de la zone la plus proche")
+        distances = zones.geometry.distance(point)
+        inter = zones.iloc[[distances.idxmin()]]
+
+    # --- Extraction dimension et delta ---
+    zone_row = inter.iloc[0]
+
+    # Les colonnes sont en minuscules après database.py
+    dimension = zone_row.get("dimension", "BM")
+    delta_raw = zone_row.get("delta", 3.0)
+
+    try:
+        delta = float(delta_raw) if delta_raw is not None else 3.0
+    except (ValueError, TypeError):
+        delta = 3.0
+
+    print(f"🌡️  Zone LCZ — dimension={dimension}, delta={delta}°C")
+
+    # --- Conversion en profil VER/BUR/VHR ---
+    ver, bur, vhr = dimension_to_lcz(dimension, delta)
+    print(f"📊 Profil thermique — VER={ver}%, BUR={bur}%, VHR={vhr}%")
+
+    # --- Calcul du score ---
+    score = calcul_score(ver, bur, vhr)
+    print(f"🎯 Score d'alerte : {score}/100 → {get_barometre(score)}")
+    print(f"{'='*50}\n")
+
+    # --- Recommandations ---
+    recos_brutes = get_recommandation(score, ver, bur, vhr)
+
+    # --- Aléa Argile RGA ---
+    alea = check_risque_argile(point.y, point.x)
+
+    # --- Simulation financière (reproductible par école) ---
+    random.seed(str(row['nom']))
+    surf = random.randint(800, 2000)
+    val_cout = surf * 150
+    val_eco = (val_cout * 0.15) + (score * 40)
+    val_bilan = val_eco - (val_cout * 0.02)
+
+    # --- Filtrage recommandations selon le profil utilisateur ---
+    if categorie == "pro":
+        f_recos = {
+            "🏗️ Infrastructure": recos_brutes["decideurs"],
+            "🏫 Vie Scolaire": recos_brutes["ecole"],
+        }
+    else:
+        f_recos = {
+            "🧒 Familles": recos_brutes["familles"],
+            "📢 Citoyens": recos_brutes["citoyens"],
+        }
+
+    return {
+        "nom": row["nom"],
+        "adresse": str(row.get("adresse", "Bordeaux Métropole")),
+        "score_alerte": score,
+        "barometre": get_barometre(score),
+        "recommandation": f_recos,
+        "alea_argile": alea,
+        "details_stats": {
+            "Veg": ver,
+            "Bati": bur,
+            "Bitume": vhr,
+            "Delta_thermique": delta,
+            "Dimension_LCZ": dimension,
+        },
+        "surface": float(surf),
+        "cout_estime": float(val_cout),
+        "investissement": float(val_cout),
+        "economie": float(val_eco),
+        "bilan": float(val_bilan),
+    }
+
 
 @app.get("/diagnostic/simulation/{ecole_name}")
-async def simulation(ecole_name: str):
-    nom_cherche = unidecode(ecole_name).lower().strip()
-    match = ecoles[ecoles["nom_normalise"].str.contains(nom_cherche)]
-    if match.empty: raise HTTPException(404)
-    
-    alea = get_alea_argile(match.iloc[0].geometry).lower()
-    
-    # Simulation simplifiée de ROI (Retour sur Investissement)
-    s_traitee = 450.0 # m² de cour
-    cout = s_traitee * 150 # 150€/m² pour désimperméabiliser
-    # Si aléa fort, on simule une économie sur les futures fissures
-    gain = 65000.0 if any(x in alea for x in ["fort", "moyen", "3", "2"]) else 15000.0
-    
-    return {
-        "surface": f"{s_traitee} m²",
-        "investissement": f"{cout:,} €".replace(",", " "),
-        "economie": f"{gain:,} €".replace(",", " "),
-        "bilan": "PROJET RENTABLE (Prévention RGA)" if gain > cout else "INVESTISSEMENT SANTÉ PUBLIQUE"
-    }
+async def simulation(ecole_name: str, categorie: str = "public"):
+    """Alias de /diagnostic/recherche pour compatibilité frontend."""
+    return await diagnostic(ecole_name, categorie)
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
